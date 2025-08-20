@@ -21,7 +21,7 @@ class WhisperProcessor:
         self.is_initialized = False
         
     async def initialize(self):
-        """Initialize Whisper model"""
+        """Initialize Whisper modell"""
         try:
             logger.info(f"Loading Whisper model: {self.config.WHISPER_MODEL_SIZE}")
             
