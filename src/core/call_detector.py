@@ -13,7 +13,6 @@ import numpy as np
 
 from ..ml.whisper_processor import WhisperProcessor
 from ..ml.llm_analyzer import LLMAnalyzer
-from ..audio.audio_analyzer import AudioAnalyzer
 from ..database.call_repository import CallRepository
 from config import Config
 
@@ -26,11 +25,12 @@ class CallDetectionService:
         self.config = config
         self.is_monitoring = False
         self.current_call_id = None
+        self.current_phone_number = None
+        self.current_call_start_time = None
         
         # Initialize components
         self.whisper_processor = WhisperProcessor(config)
         self.llm_analyzer = LLMAnalyzer(config)
-        self.audio_analyzer = AudioAnalyzer(config)
         self.call_repository = CallRepository(config)
         
         # Audio recording
@@ -47,7 +47,7 @@ class CallDetectionService:
             await self.llm_analyzer.initialize()
             
             # Initialize database
-            self.call_repository.initialize()
+            await self.call_repository.initialize()
             
             logger.info("Call Detection Service initialized successfully")
             return True
@@ -80,6 +80,8 @@ class CallDetectionService:
             return
             
         self.current_call_id = self._generate_call_id()
+        self.current_phone_number = phone_number
+        self.current_call_start_time = datetime.now()
         logger.info(f"Call started: {self.current_call_id}")
         
         # Start recording and analysis
@@ -97,6 +99,8 @@ class CallDetectionService:
         await self._process_final_results()
         
         self.current_call_id = None
+        self.current_phone_number = None
+        self.current_call_start_time = None
     
     async def start_call_recording(self):
         """Start audio recording and real-time analysis"""
@@ -140,12 +144,8 @@ class CallDetectionService:
                         # Analyze conversation
                         conversation_analysis = await self.llm_analyzer.analyze_conversation(transcription)
                         
-                        # Analyze audio features
-                        audio_features = self.audio_analyzer.extract_features(audio_chunk, self.config.SAMPLE_RATE)
-                        audio_risk = self.audio_analyzer.calculate_audio_risk_score(audio_features)
-                        
-                        # Handle real-time results
-                        await self._handle_real_time_result(transcription, conversation_analysis, audio_risk)
+                        # Handle real-time results (LLM only)
+                        await self._handle_real_time_result(transcription, conversation_analysis)
                 
                 await asyncio.sleep(self.config.DETECTION_INTERVAL)
                 
@@ -153,9 +153,9 @@ class CallDetectionService:
                 logger.error(f"Error in real-time processing: {e}")
                 await asyncio.sleep(1)
     
-    async def _handle_real_time_result(self, transcription: str, conversation_analysis: Dict, audio_risk: float):
+    async def _handle_real_time_result(self, transcription: str, conversation_analysis: Dict):
         """Handle real-time detection results"""
-        combined_risk = (conversation_analysis.get('risk_score', 0) + audio_risk) / 2
+        combined_risk = conversation_analysis.get('risk_score', 0)
         
         logger.info(f"Real-time analysis - Risk: {combined_risk:.2f}, Text: {transcription[:50]}...")
         
@@ -166,12 +166,12 @@ class CallDetectionService:
     
     async def _process_final_results(self):
         """Process final call results and save to database"""
-        if not self.audio_buffer or not self.current_call_id:
+        if not self.current_call_id:
             return
             
         try:
             # Convert audio buffer to numpy array
-            audio_data = np.array(self.audio_buffer, dtype=np.float32)
+            audio_data = np.array(self.audio_buffer, dtype=np.float32) if self.audio_buffer else np.array([], dtype=np.float32)
             
             # Final transcription
             final_transcription = await self.whisper_processor.transcribe_audio(audio_data)
@@ -179,28 +179,25 @@ class CallDetectionService:
             # Final conversation analysis
             conversation_analysis = await self.llm_analyzer.analyze_conversation(final_transcription)
             
-            # Final audio analysis
-            audio_features = self.audio_analyzer.extract_features(audio_data, self.config.SAMPLE_RATE)
-            audio_risk = self.audio_analyzer.calculate_audio_risk_score(audio_features)
-            
-            # Calculate final risk score
-            final_risk = (conversation_analysis.get('risk_score', 0) + audio_risk) / 2
+            # Calculate final risk score (LLM only)
+            final_risk = conversation_analysis.get('risk_score', 0)
             is_fraud = final_risk > self.config.MEDIUM_RISK_THRESHOLD
             
-            # Save call record
+            # Save call record (DB schema expects these fields)
             call_record = {
-                'id': self.current_call_id,
-                'timestamp': datetime.now().isoformat(),
-                'duration': len(audio_data) / self.config.SAMPLE_RATE,
+                'call_id': self.current_call_id,
+                'phone_number': self.current_phone_number,
+                'start_time': (self.current_call_start_time or datetime.now()).isoformat(),
+                'end_time': datetime.now().isoformat(),
+                'duration': len(audio_data) / self.config.SAMPLE_RATE if len(audio_data) > 0 else 0.0,
                 'transcription': final_transcription,
-                'risk_score': final_risk,
-                'is_fraud': is_fraud,
+                'audio_features': {},
                 'conversation_analysis': conversation_analysis,
-                'audio_features': audio_features,
-                'audio_risk': audio_risk
+                'combined_risk_score': final_risk,
+                'is_suspicious': is_fraud
             }
             
-            self.call_repository.save_call_record(call_record)
+            await self.call_repository.save_call_record(call_record)
             
             logger.info(f"Call analysis complete - Risk: {final_risk:.2f}, Fraud: {is_fraud}")
             
@@ -209,8 +206,7 @@ class CallDetectionService:
     
     def _get_audio_chunk(self) -> Optional[np.ndarray]:
         """Get audio chunk from microphone (placeholder)"""
-        # In real implementation, this would capture audio from microphone
-        # For now, return None to simulate no audio
+        # Placeholder: integrate Android audio stream here.
         return None
     
     def _generate_call_id(self) -> str:
