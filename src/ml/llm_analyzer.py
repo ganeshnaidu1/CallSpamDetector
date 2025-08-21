@@ -1,55 +1,27 @@
 """
-LLM Conversation Analyzer
-Analyzes conversation content for fraud detection patterns
+Conversation Analyzer (Rule-based)
+Lightweight analyzer without transformer dependencies.
 """
 
 import asyncio
 import logging
 import re
 from typing import Dict, List, Any
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 logger = logging.getLogger(__name__)
 
+
 class LLMAnalyzer:
-    """LLM-based conversation analyzer for fraud detection"""
-    
+    """Rule-based conversation analyzer"""
+
     def __init__(self, config):
         self.config = config
-        self.model = None
-        self.tokenizer = None
-        self.classifier = None
         self.is_initialized = False
-        
+
     async def initialize(self):
-        """Initialize LLM model for conversation analysis"""
-        try:
-            logger.info("Loading LLM model for conversation analysis...")
-            
-            # Load model in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, self._load_model)
-            
-            self.is_initialized = True
-            logger.info("LLM model loaded successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to load LLM model: {e}")
-            return False
-    
-    def _load_model(self):
-        """Load the model synchronously"""
-        try:
-            # Use a lightweight sentiment analysis model
-            self.classifier = pipeline(
-                "sentiment-analysis",
-                model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-                device=-1  # CPU
-            )
-        except Exception as e:
-            logger.warning(f"Failed to load transformer model, using rule-based analysis: {e}")
-            self.classifier = None
+        """No heavy models to load"""
+        self.is_initialized = True
+        return True
     
     async def analyze_conversation(self, transcription: str) -> Dict[str, Any]:
         """Analyze conversation for fraud indicators"""
@@ -120,49 +92,8 @@ class LLMAnalyzer:
         }
     
     async def _ml_based_analysis(self, transcription: str) -> Dict[str, Any]:
-        """ML-based sentiment and fraud analysis"""
-        if not self.classifier:
-            return {'ml_risk_score': 0.0, 'sentiment': 'neutral', 'confidence': 0.0}
-        
-        try:
-            # Run sentiment analysis in executor
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                self._analyze_sentiment,
-                transcription
-            )
-            
-            # Convert sentiment to risk score
-            sentiment = result.get('label', 'NEUTRAL').lower()
-            confidence = result.get('score', 0.0)
-            
-            # High confidence negative sentiment might indicate fraud
-            ml_risk = 0.0
-            if sentiment == 'negative' and confidence > 0.7:
-                ml_risk = confidence * 0.6  # Scale down
-            elif sentiment == 'positive' and confidence > 0.8:
-                # Overly positive (too good to be true) can also be suspicious
-                ml_risk = confidence * 0.3
-            
-            return {
-                'ml_risk_score': ml_risk,
-                'sentiment': sentiment,
-                'confidence': confidence
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in ML analysis: {e}")
-            return {'ml_risk_score': 0.0, 'sentiment': 'neutral', 'confidence': 0.0}
-    
-    def _analyze_sentiment(self, text: str) -> Dict[str, Any]:
-        """Analyze sentiment synchronously"""
-        try:
-            result = self.classifier(text)[0]
-            return result
-        except Exception as e:
-            logger.error(f"Sentiment analysis error: {e}")
-            return {'label': 'NEUTRAL', 'score': 0.0}
+        """Placeholder ML analysis removed for simplicity"""
+        return {'ml_risk_score': 0.0, 'sentiment': 'neutral', 'confidence': 0.0}
     
     def _combine_analyses(self, rule_analysis: Dict, ml_analysis: Dict) -> Dict[str, Any]:
         """Combine rule-based and ML-based analyses"""
