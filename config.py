@@ -28,6 +28,7 @@ class Config:
         
         # Whisper model settings
         self.WHISPER_MODEL_SIZE = "base"  # tiny, base, small, medium, large
+        self.WHISPER_MODEL_NAME = "base"  # For compatibility
         self.WHISPER_LANGUAGE = "en"
         self.WHISPER_DEVICE = "cpu"
         
@@ -66,6 +67,7 @@ class Config:
         self.AUDIO_WEIGHT = 0.1
         
         # Risk thresholds
+        self.RISK_THRESHOLD = 0.6  # Main threshold used in LLMAnalyzer
         self.LOW_RISK_THRESHOLD = 0.3
         self.MEDIUM_RISK_THRESHOLD = 0.6
         self.HIGH_RISK_THRESHOLD = 0.8

@@ -1,219 +1,151 @@
+#!/usr/bin/env python3
 """
-Conversation Analyzer (Rule-based)
-Lightweight analyzer without transformer dependencies.
+LLM Analyzer for Spam/Fraud Detection
+Performs rule-based analysis on transcribed text
 """
 
-import asyncio
 import logging
 import re
 from typing import Dict, List, Any
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-
 class LLMAnalyzer:
-    """Rule-based conversation analyzer"""
-
     def __init__(self, config):
         self.config = config
-        self.is_initialized = False
-
+        self.fraud_keywords = config.FRAUD_KEYWORDS
+        self.suspicious_phrases = config.SUSPICIOUS_PHRASES
+        self.risk_threshold = config.RISK_THRESHOLD
+        
     async def initialize(self):
-        """No heavy models to load"""
-        self.is_initialized = True
-        return True
+        """Initialize the analyzer"""
+        try:
+            logger.info("Initializing LLM Analyzer")
+            logger.info(f"Loaded {len(self.fraud_keywords)} fraud keywords")
+            logger.info(f"Loaded {len(self.suspicious_phrases)} suspicious phrases")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM Analyzer: {e}")
+            return False
     
-    async def analyze_conversation(self, transcription: str) -> Dict[str, Any]:
-        """Analyze conversation for fraud indicators"""
-        if not transcription.strip():
-            return self._empty_analysis()
+    async def analyze_conversation(self, text: str) -> Dict[str, Any]:
+        """Analyze conversation text for fraud indicators"""
+        if not text.strip():
+            return {
+                'risk_score': 0.0,
+                'is_suspicious': False,
+                'confidence': 0.0,
+                'reasoning': 'No text to analyze',
+                'detected_keywords': [],
+                'detected_phrases': []
+            }
         
         try:
-            # Rule-based analysis
-            rule_analysis = self._rule_based_analysis(transcription)
+            # Convert to lowercase for matching
+            text_lower = text.lower()
             
-            # ML-based analysis (if available)
-            ml_analysis = await self._ml_based_analysis(transcription)
+            # Find detected keywords
+            detected_keywords = []
+            for keyword in self.fraud_keywords:
+                if keyword.lower() in text_lower:
+                    detected_keywords.append(keyword)
             
-            # Combine analyses
-            combined_analysis = self._combine_analyses(rule_analysis, ml_analysis)
+            # Find detected phrases
+            detected_phrases = []
+            for phrase in self.suspicious_phrases:
+                if phrase.lower() in text_lower:
+                    detected_phrases.append(phrase)
             
-            return combined_analysis
+            # Calculate risk score
+            risk_score = self._calculate_risk_score(detected_keywords, detected_phrases, text)
+            
+            # Determine if suspicious
+            is_suspicious = risk_score >= self.risk_threshold
+            
+            # Generate reasoning
+            reasoning = self._generate_reasoning(detected_keywords, detected_phrases, risk_score)
+            
+            # Calculate confidence
+            confidence = self._calculate_confidence(detected_keywords, detected_phrases, text)
+            
+            result = {
+                'risk_score': risk_score,
+                'is_suspicious': is_suspicious,
+                'confidence': confidence,
+                'reasoning': reasoning,
+                'detected_keywords': detected_keywords,
+                'detected_phrases': detected_phrases,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Analysis result: Risk={risk_score:.2f}, Suspicious={is_suspicious}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error analyzing conversation: {e}")
-            return self._empty_analysis()
+            logger.error(f"Analysis failed: {e}")
+            return {
+                'risk_score': 0.0,
+                'is_suspicious': False,
+                'confidence': 0.0,
+                'reasoning': f'Analysis error: {str(e)}',
+                'detected_keywords': [],
+                'detected_phrases': []
+            }
     
-    def _rule_based_analysis(self, transcription: str) -> Dict[str, Any]:
-        """Rule-based fraud detection analysis"""
-        transcription_lower = transcription.lower()
+    def _calculate_risk_score(self, keywords: List[str], phrases: List[str], text: str) -> float:
+        """Calculate risk score based on detected patterns"""
+        base_score = 0.0
         
-        # Detect keywords
-        keyword_matches = []
-        for keyword in self.config.FRAUD_KEYWORDS:
-            if keyword.lower() in transcription_lower:
-                keyword_matches.append(keyword)
+        # Add score for each keyword
+        base_score += len(keywords) * 0.2
         
-        # Detect suspicious phrases
-        phrase_matches = []
-        for phrase in self.config.SUSPICIOUS_PHRASES:
-            if phrase.lower() in transcription_lower:
-                phrase_matches.append(phrase)
+        # Add score for each phrase (higher weight)
+        base_score += len(phrases) * 0.4
         
-        # Detect emotional triggers
-        emotional_triggers = []
-        for trigger in self.config.EMOTIONAL_TRIGGERS:
-            if trigger.lower() in transcription_lower:
-                emotional_triggers.append(trigger)
+        # Add score for text length (longer conversations might be more suspicious)
+        if len(text) > 100:
+            base_score += 0.1
         
-        # Calculate rule-based risk score
-        keyword_score = len(keyword_matches) * self.config.KEYWORD_WEIGHT
-        phrase_score = len(phrase_matches) * self.config.PHRASE_WEIGHT
-        emotional_score = len(emotional_triggers) * self.config.EMOTIONAL_WEIGHT
+        # Add score for urgency indicators
+        urgency_words = ['urgent', 'immediate', 'now', 'quick', 'fast', 'hurry']
+        urgency_count = sum(1 for word in urgency_words if word in text.lower())
+        base_score += urgency_count * 0.1
         
-        rule_risk = min(keyword_score + phrase_score + emotional_score, 1.0)
-        
-        # Additional pattern checks
-        urgency_patterns = self._detect_urgency_patterns(transcription_lower)
-        financial_patterns = self._detect_financial_patterns(transcription_lower)
-        verification_patterns = self._detect_verification_patterns(transcription_lower)
-        
-        return {
-            'keyword_matches': keyword_matches,
-            'phrase_matches': phrase_matches,
-            'emotional_triggers': emotional_triggers,
-            'urgency_patterns': urgency_patterns,
-            'financial_patterns': financial_patterns,
-            'verification_patterns': verification_patterns,
-            'rule_risk_score': rule_risk,
-            'keyword_count': len(keyword_matches),
-            'phrase_count': len(phrase_matches),
-            'trigger_count': len(emotional_triggers)
-        }
+        # Cap at 1.0
+        return min(base_score, 1.0)
     
-    async def _ml_based_analysis(self, transcription: str) -> Dict[str, Any]:
-        """Placeholder ML analysis removed for simplicity"""
-        return {'ml_risk_score': 0.0, 'sentiment': 'neutral', 'confidence': 0.0}
-    
-    def _combine_analyses(self, rule_analysis: Dict, ml_analysis: Dict) -> Dict[str, Any]:
-        """Combine rule-based and ML-based analyses"""
-        rule_risk = rule_analysis.get('rule_risk_score', 0.0)
-        ml_risk = ml_analysis.get('ml_risk_score', 0.0)
-        
-        # Weighted combination
-        combined_risk = (rule_risk * 0.7) + (ml_risk * 0.3)
-        
-        # Determine if suspicious
-        is_suspicious = (
-            combined_risk > self.config.MEDIUM_RISK_THRESHOLD or
-            rule_analysis.get('keyword_count', 0) >= 3 or
-            rule_analysis.get('phrase_count', 0) >= 2
-        )
-        
-        # Calculate confidence
-        confidence = min(combined_risk + 0.1, 1.0)
-        
-        return {
-            'risk_score': combined_risk,
-            'is_suspicious': is_suspicious,
-            'confidence': confidence,
-            'detected_keywords': rule_analysis.get('keyword_matches', []),
-            'detected_phrases': rule_analysis.get('phrase_matches', []),
-            'emotional_triggers': rule_analysis.get('emotional_triggers', []),
-            'urgency_patterns': rule_analysis.get('urgency_patterns', []),
-            'financial_patterns': rule_analysis.get('financial_patterns', []),
-            'verification_patterns': rule_analysis.get('verification_patterns', []),
-            'sentiment': ml_analysis.get('sentiment', 'neutral'),
-            'ml_confidence': ml_analysis.get('confidence', 0.0),
-            'reasoning': self._generate_reasoning(rule_analysis, ml_analysis, combined_risk)
-        }
-    
-    def _detect_urgency_patterns(self, text: str) -> List[str]:
-        """Detect urgency-related patterns"""
-        patterns = [
-            r'act (now|immediately|fast|quickly)',
-            r'(urgent|emergency|asap)',
-            r'(expires?|deadline) (today|soon|in \d+)',
-            r'(last|final) (chance|opportunity|warning)',
-            r'(limited|short) time'
-        ]
-        
-        matches = []
-        for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                matches.append(pattern)
-        
-        return matches
-    
-    def _detect_financial_patterns(self, text: str) -> List[str]:
-        """Detect financial-related patterns"""
-        patterns = [
-            r'(bank|credit card|account) (number|details|information)',
-            r'(social security|ssn) number',
-            r'(send|wire|transfer) money',
-            r'(gift card|bitcoin|cryptocurrency)',
-            r'(refund|rebate|prize|lottery)',
-            r'\$\d+|\d+ dollars'
-        ]
-        
-        matches = []
-        for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                matches.append(pattern)
-        
-        return matches
-    
-    def _detect_verification_patterns(self, text: str) -> List[str]:
-        """Detect verification-related patterns"""
-        patterns = [
-            r'(verify|confirm|validate) (your|account|identity)',
-            r'(security|verification) (code|pin|password)',
-            r'(update|provide) (your|personal) (information|details)',
-            r'(suspended|locked|frozen) (account|card)',
-            r'(unauthorized|suspicious) (activity|transaction)'
-        ]
-        
-        matches = []
-        for pattern in patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                matches.append(pattern)
-        
-        return matches
-    
-    def _generate_reasoning(self, rule_analysis: Dict, ml_analysis: Dict, risk_score: float) -> str:
+    def _generate_reasoning(self, keywords: List[str], phrases: List[str], risk_score: float) -> str:
         """Generate human-readable reasoning for the analysis"""
         reasons = []
         
-        if rule_analysis.get('keyword_count', 0) > 0:
-            reasons.append(f"Found {rule_analysis['keyword_count']} fraud keywords")
+        if keywords:
+            reasons.append(f"Detected {len(keywords)} fraud keywords: {', '.join(keywords)}")
         
-        if rule_analysis.get('phrase_count', 0) > 0:
-            reasons.append(f"Found {rule_analysis['phrase_count']} suspicious phrases")
+        if phrases:
+            reasons.append(f"Detected {len(phrases)} suspicious phrases: {', '.join(phrases)}")
         
-        if rule_analysis.get('trigger_count', 0) > 0:
-            reasons.append(f"Found {rule_analysis['trigger_count']} emotional triggers")
+        if risk_score > 0.7:
+            reasons.append("High risk score indicates potential fraud")
+        elif risk_score > 0.4:
+            reasons.append("Moderate risk score - exercise caution")
+        else:
+            reasons.append("Low risk score - appears legitimate")
         
-        if ml_analysis.get('sentiment') == 'negative':
-            reasons.append(f"Negative sentiment detected (confidence: {ml_analysis.get('confidence', 0):.2f})")
-        
-        if not reasons:
-            reasons.append("No significant fraud indicators detected")
-        
-        return "; ".join(reasons)
+        return "; ".join(reasons) if reasons else "No specific indicators detected"
     
-    def _empty_analysis(self) -> Dict[str, Any]:
-        """Return empty analysis result"""
-        return {
-            'risk_score': 0.0,
-            'is_suspicious': False,
-            'confidence': 0.0,
-            'detected_keywords': [],
-            'detected_phrases': [],
-            'emotional_triggers': [],
-            'urgency_patterns': [],
-            'financial_patterns': [],
-            'verification_patterns': [],
-            'sentiment': 'neutral',
-            'ml_confidence': 0.0,
-            'reasoning': 'No text to analyze'
-        }
+    def _calculate_confidence(self, keywords: List[str], phrases: List[str], text: str) -> float:
+        """Calculate confidence in the analysis"""
+        confidence = 0.5  # Base confidence
+        
+        # Higher confidence with more detected patterns
+        if keywords:
+            confidence += 0.2
+        if phrases:
+            confidence += 0.3
+        
+        # Higher confidence with longer text (more data to analyze)
+        if len(text) > 50:
+            confidence += 0.1
+        
+        return min(confidence, 1.0)

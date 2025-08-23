@@ -1,53 +1,49 @@
+#!/usr/bin/env python3
 """
-Core Call Detection Service
-Handles call monitoring, audio recording, and fraud detection orchestration
+Call Detection Service
+Orchestrates call monitoring, recording, and analysis
 """
 
 import asyncio
 import logging
-import threading
-import time
-from datetime import datetime
 from typing import Optional, Dict, Any
-import numpy as np
+from datetime import datetime
 
-from ..ml.whisper_processor import WhisperProcessor
-from ..ml.llm_analyzer import LLMAnalyzer
-from ..database.call_repository import CallRepository
-from config import Config
+from src.ml.whisper_processor import WhisperProcessor
+from src.ml.llm_analyzer import LLMAnalyzer
+from src.database.call_repository import CallRepository
 
 logger = logging.getLogger(__name__)
 
 class CallDetectionService:
-    """Main service for call fraud detection"""
-    
-    def __init__(self, config: Config):
+    def __init__(self, config):
         self.config = config
+        self.whisper = WhisperProcessor(config)
+        self.llm = LLMAnalyzer(config)
+        self.repository = CallRepository(config)
         self.is_monitoring = False
-        self.current_call_id = None
-        self.current_phone_number = None
-        self.current_call_start_time = None
         
-        # Initialize components
-        self.whisper_processor = WhisperProcessor(config)
-        self.llm_analyzer = LLMAnalyzer(config)
-        self.call_repository = CallRepository(config)
-        
-        # Audio recording
-        self.audio_buffer = []
-        self.is_recording = False
-        
-    async def initialize(self):
-        """Initialize all ML models and components"""
+    async def initialize(self) -> bool:
+        """Initialize all components"""
         try:
             logger.info("Initializing Call Detection Service...")
             
-            # Initialize ML models
-            await self.whisper_processor.initialize()
-            await self.llm_analyzer.initialize()
+            # Initialize ML components
+            whisper_ok = await self.whisper.initialize()
+            if not whisper_ok:
+                logger.error("Failed to initialize Whisper")
+                return False
+            
+            llm_ok = await self.llm.initialize()
+            if not llm_ok:
+                logger.error("Failed to initialize LLM Analyzer")
+                return False
             
             # Initialize database
-            await self.call_repository.initialize()
+            db_ok = await self.repository.initialize()
+            if not db_ok:
+                logger.error("Failed to initialize database")
+                return False
             
             logger.info("Call Detection Service initialized successfully")
             return True
@@ -58,157 +54,83 @@ class CallDetectionService:
     
     async def start_monitoring(self):
         """Start call monitoring"""
-        if self.is_monitoring:
-            return
-            
         self.is_monitoring = True
-        logger.info("Started call monitoring")
+        logger.info("Call monitoring started")
         
-        # Start monitoring loop
-        await self._monitoring_loop()
+        # In a real implementation, this would listen for call events
+        # For now, we'll just log that monitoring is active
+        while self.is_monitoring:
+            await asyncio.sleep(1)
     
     async def stop_monitoring(self):
         """Stop call monitoring"""
         self.is_monitoring = False
-        if self.is_recording:
-            await self.stop_call_recording()
-        logger.info("Stopped call monitoring")
+        logger.info("Call monitoring stopped")
     
-    async def on_call_started(self, phone_number: str = None):
-        """Handle incoming call detection"""
-        if self.is_recording:
-            return
-            
-        self.current_call_id = self._generate_call_id()
-        self.current_phone_number = phone_number
-        self.current_call_start_time = datetime.now()
-        logger.info(f"Call started: {self.current_call_id}")
-        
-        # Start recording and analysis
-        await self.start_call_recording()
-        
-    async def on_call_ended(self):
-        """Handle call end"""
-        if not self.is_recording:
-            return
-            
-        logger.info(f"Call ended: {self.current_call_id}")
-        
-        # Stop recording and process final results
-        await self.stop_call_recording()
-        await self._process_final_results()
-        
-        self.current_call_id = None
-        self.current_phone_number = None
-        self.current_call_start_time = None
-    
-    async def start_call_recording(self):
-        """Start audio recording and real-time analysis"""
-        self.is_recording = True
-        self.audio_buffer = []
-        
-        # Start real-time processing
-        asyncio.create_task(self._real_time_processing())
-        
-    async def stop_call_recording(self):
-        """Stop audio recording"""
-        self.is_recording = False
-        
-    async def _monitoring_loop(self):
-        """Main monitoring loop"""
-        while self.is_monitoring:
-            try:
-                # Check for incoming calls (placeholder - would integrate with Android APIs)
-                # For now, simulate call detection
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                logger.error(f"Error in monitoring loop: {e}")
-                await asyncio.sleep(5)
-    
-    async def _real_time_processing(self):
-        """Real-time audio processing and fraud detection"""
-        while self.is_recording:
-            try:
-                # Simulate audio chunk (in real implementation, get from microphone)
-                audio_chunk = self._get_audio_chunk()
-                
-                if audio_chunk is not None:
-                    # Add to buffer
-                    self.audio_buffer.extend(audio_chunk)
-                    
-                    # Process chunk for transcription
-                    transcription = await self.whisper_processor.transcribe_chunk(audio_chunk)
-                    
-                    if transcription.strip():
-                        # Analyze conversation
-                        conversation_analysis = await self.llm_analyzer.analyze_conversation(transcription)
-                        
-                        # Handle real-time results (LLM only)
-                        await self._handle_real_time_result(transcription, conversation_analysis)
-                
-                await asyncio.sleep(self.config.DETECTION_INTERVAL)
-                
-            except Exception as e:
-                logger.error(f"Error in real-time processing: {e}")
-                await asyncio.sleep(1)
-    
-    async def _handle_real_time_result(self, transcription: str, conversation_analysis: Dict):
-        """Handle real-time detection results"""
-        combined_risk = conversation_analysis.get('risk_score', 0)
-        
-        logger.info(f"Real-time analysis - Risk: {combined_risk:.2f}, Text: {transcription[:50]}...")
-        
-        # Alert if high risk
-        if combined_risk > self.config.HIGH_RISK_THRESHOLD:
-            logger.warning(f"HIGH RISK CALL DETECTED! Risk: {combined_risk:.2f}")
-            # TODO: Trigger notification/alert
-    
-    async def _process_final_results(self):
-        """Process final call results and save to database"""
-        if not self.current_call_id:
-            return
-            
+    async def process_call_audio(self, audio_data: bytes, call_id: str) -> Dict[str, Any]:
+        """Process call audio and return analysis results"""
         try:
-            # Convert audio buffer to numpy array
-            audio_data = np.array(self.audio_buffer, dtype=np.float32) if self.audio_buffer else np.array([], dtype=np.float32)
+            logger.info(f"Processing call audio for call_id: {call_id}")
             
-            # Final transcription
-            final_transcription = await self.whisper_processor.transcribe_audio(audio_data)
+            # Convert audio data to numpy array
+            import numpy as np
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
             
-            # Final conversation analysis
-            conversation_analysis = await self.llm_analyzer.analyze_conversation(final_transcription)
+            # Transcribe with Whisper
+            transcription = await self.whisper.transcribe_audio(audio_array)
             
-            # Calculate final risk score (LLM only)
-            final_risk = conversation_analysis.get('risk_score', 0)
-            is_fraud = final_risk > self.config.MEDIUM_RISK_THRESHOLD
+            if not transcription.strip():
+                logger.warning("No transcription generated from audio")
+                return {
+                    'call_id': call_id,
+                    'transcription': '',
+                    'risk_score': 0.0,
+                    'is_suspicious': False,
+                    'confidence': 0.0,
+                    'reasoning': 'No speech detected',
+                    'timestamp': datetime.now().isoformat()
+                }
             
-            # Save call record (DB schema expects these fields)
-            call_record = {
-                'call_id': self.current_call_id,
-                'phone_number': self.current_phone_number,
-                'start_time': (self.current_call_start_time or datetime.now()).isoformat(),
-                'end_time': datetime.now().isoformat(),
-                'duration': len(audio_data) / self.config.SAMPLE_RATE if len(audio_data) > 0 else 0.0,
-                'transcription': final_transcription,
-                'audio_features': {},
-                'conversation_analysis': conversation_analysis,
-                'combined_risk_score': final_risk,
-                'is_suspicious': is_fraud
+            # Analyze with LLM
+            analysis = await self.llm.analyze_conversation(transcription)
+            
+            # Add call_id to result
+            result = {
+                'call_id': call_id,
+                'transcription': transcription,
+                **analysis
             }
             
-            await self.call_repository.save_call_record(call_record)
+            # Save to database
+            await self.repository.save_call_record(result)
             
-            logger.info(f"Call analysis complete - Risk: {final_risk:.2f}, Fraud: {is_fraud}")
+            logger.info(f"Call analysis completed: Risk={result['risk_score']:.2f}")
+            return result
             
         except Exception as e:
-            logger.error(f"Error processing final results: {e}")
+            logger.error(f"Failed to process call audio: {e}")
+            return {
+                'call_id': call_id,
+                'transcription': '',
+                'risk_score': 0.0,
+                'is_suspicious': False,
+                'confidence': 0.0,
+                'reasoning': f'Processing error: {str(e)}',
+                'timestamp': datetime.now().isoformat()
+            }
     
-    def _get_audio_chunk(self) -> Optional[np.ndarray]:
-        """Get audio chunk from microphone (placeholder)"""
-        # Placeholder: integrate Android audio stream here.
-        return None
+    async def get_call_history(self, limit: int = 10) -> list:
+        """Get recent call history"""
+        try:
+            return await self.repository.get_recent_calls(limit)
+        except Exception as e:
+            logger.error(f"Failed to get call history: {e}")
+            return []
     
-    def _generate_call_id(self) -> str:
-        """Generate unique call ID"""
-        return f"call_{int(time.time() * 1000)}"
+    async def get_call_by_id(self, call_id: str) -> Optional[Dict[str, Any]]:
+        """Get specific call by ID"""
+        try:
+            return await self.repository.get_call_by_id(call_id)
+        except Exception as e:
+            logger.error(f"Failed to get call by ID: {e}")
+            return None
