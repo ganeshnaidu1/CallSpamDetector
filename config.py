@@ -72,8 +72,6 @@ class Config:
         self.MEDIUM_RISK_THRESHOLD = 0.6
         self.HIGH_RISK_THRESHOLD = 0.8
         
-        # Database settings
-        self.DATABASE_PATH = self.BASE_DIR / "call_records.db"
         
         # Monitoring settings
         self.REAL_TIME_PROCESSING = True
