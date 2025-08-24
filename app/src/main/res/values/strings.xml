@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Spam Detector</string>
+    <string name="accessibility_service_description">Call screen detection for spam detection</string>
+</resources>

@@ -2,12 +2,17 @@ package com.callscam.detector.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.content.Intent
+import android.content.Context
 import com.callscam.detector.service.CallRecordingService
+import com.callscam.detector.SpamDetector
 
 class CallAccessibilityService : AccessibilityService() {
+    private lateinit var spamDetector: SpamDetector
+    private var lastProcessedNumber: String? = null
 
     // Delegate recording to a foreground service for OS compliance
 
@@ -17,6 +22,8 @@ class CallAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        
+        spamDetector = SpamDetector(this)
         
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
@@ -47,6 +54,21 @@ class CallAccessibilityService : AccessibilityService() {
         when {
             className.contains("InCallScreen") -> {
                 Log.d(TAG, "Call screen detected")
+                
+                // Get the phone number from the call (you might need to adjust this based on your implementation)
+                val phoneNumber = getIncomingNumber()
+                
+                // Check if this is a new number to avoid processing the same call multiple times
+                if (phoneNumber != null && phoneNumber != lastProcessedNumber) {
+                    lastProcessedNumber = phoneNumber
+                    
+                    // Check if the call is spam
+                    if (spamDetector.isSpam(phoneNumber)) {
+                        Log.d(TAG, "Spam call detected: $phoneNumber")
+                        spamDetector.onSpamDetected()
+                    }
+                }
+                
                 val intent = Intent(this, CallRecordingService::class.java).apply {
                     action = CallRecordingService.ACTION_START
                 }
@@ -77,6 +99,19 @@ class CallAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         Log.d(TAG, "Accessibility service interrupted")
+    }
+    
+    private fun getIncomingNumber(): String? {
+        return try {
+            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            telephonyManager.callState
+            // Note: Getting the incoming number might require additional permissions and handling
+            // This is a simplified version - you might need to adjust based on your requirements
+            telephonyManager.line1Number ?: "Unknown"
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting phone number", e)
+            null
+        }
     }
 
     override fun onDestroy() {

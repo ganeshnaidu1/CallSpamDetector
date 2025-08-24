@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.callscam.detector.audio.AudioProcessor
-import com.callscam.detector.net.WebSocketSender
 
 class CallRecordingService : Service() {
 
@@ -21,7 +20,6 @@ class CallRecordingService : Service() {
     }
 
     private val audioProcessor = AudioProcessor()
-    private var wsSender: WebSocketSender? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -38,15 +36,12 @@ class CallRecordingService : Service() {
         val notification = buildNotification("Recording call audio")
         startForeground(NOTIFICATION_ID, notification)
         
-        // Connect to Python server
-        val wsUrl = intent?.getStringExtra("WS_URL") ?: "ws://10.0.2.2:8765/stream"
-        wsSender = WebSocketSender(wsUrl).also { it.connect() }
+        // Audio processing only - no WebSocket needed
         
         audioProcessor.startRecording()
     }
 
     private fun stopRecordingAndStop() {
-        wsSender?.close()
         audioProcessor.stopRecording()
         if (Build.VERSION.SDK_INT >= 24) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -58,7 +53,6 @@ class CallRecordingService : Service() {
     }
 
     override fun onDestroy() {
-        wsSender?.close()
         audioProcessor.stopRecording()
         super.onDestroy()
     }

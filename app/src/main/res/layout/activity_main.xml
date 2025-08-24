@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Spam Call Detector"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="32dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Python Server URL:"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/server_url_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="ws://10.0.2.2:8765/stream"
+        android:inputType="textUri"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/start_server_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Save Server URL"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ready to detect spam calls"
+        android:textSize="14sp"
+        android:gravity="center"
+        android:layout_marginTop="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Instructions:&#10;1. Start Python server: python3 python_server.py&#10;2. Set server URL above&#10;3. Enable Accessibility Service in settings&#10;4. Make calls to test"
+        android:textSize="12sp"
+        android:layout_marginTop="32dp"
+        android:background="#f0f0f0"
+        android:padding="16dp" />
+
+</LinearLayout>

@@ -14,9 +14,9 @@ class AudioProcessor {
         private const val SAMPLE_RATE = 16000
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val BUFFER_SIZE = AudioRecord.getMinBufferSize(
+        private val BUFFER_SIZE = AudioRecord.getMinBufferSize(
             SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT
-        )
+        ) * 2
     }
 
     private var audioRecord: AudioRecord? = null
