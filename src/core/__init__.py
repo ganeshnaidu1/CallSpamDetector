@@ -1,1 +1,1 @@
-# Core call detection components
+# Core package initialization

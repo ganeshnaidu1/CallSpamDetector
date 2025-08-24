@@ -11,7 +11,6 @@ from datetime import datetime
 
 from src.ml.whisper_processor import WhisperProcessor
 from src.ml.llm_analyzer import LLMAnalyzer
-from src.database.call_repository import CallRepository
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,6 @@ class CallDetectionService:
         self.config = config
         self.whisper = WhisperProcessor(config)
         self.llm = LLMAnalyzer(config)
-        self.repository = CallRepository(config)
         self.is_monitoring = False
         
     async def initialize(self) -> bool:
@@ -39,11 +37,6 @@ class CallDetectionService:
                 logger.error("Failed to initialize LLM Analyzer")
                 return False
             
-            # Initialize database
-            db_ok = await self.repository.initialize()
-            if not db_ok:
-                logger.error("Failed to initialize database")
-                return False
             
             logger.info("Call Detection Service initialized successfully")
             return True
@@ -101,8 +94,6 @@ class CallDetectionService:
                 **analysis
             }
             
-            # Save to database
-            await self.repository.save_call_record(result)
             
             logger.info(f"Call analysis completed: Risk={result['risk_score']:.2f}")
             return result
@@ -119,18 +110,3 @@ class CallDetectionService:
                 'timestamp': datetime.now().isoformat()
             }
     
-    async def get_call_history(self, limit: int = 10) -> list:
-        """Get recent call history"""
-        try:
-            return await self.repository.get_recent_calls(limit)
-        except Exception as e:
-            logger.error(f"Failed to get call history: {e}")
-            return []
-    
-    async def get_call_by_id(self, call_id: str) -> Optional[Dict[str, Any]]:
-        """Get specific call by ID"""
-        try:
-            return await self.repository.get_call_by_id(call_id)
-        except Exception as e:
-            logger.error(f"Failed to get call by ID: {e}")
-            return None
