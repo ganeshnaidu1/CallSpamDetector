@@ -17,6 +17,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.chaquo.python.Python
+import com.chaquo.python.android.AndroidPlatform
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
     private val TAG = "SpamDetector"
@@ -42,6 +48,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var startServerButton: Button
     private lateinit var prefs: SharedPreferences
+    private lateinit var spamDetector: SpamDetector
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +100,29 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 Log.d(TAG, "Button click listener set up")
+                
+                // Initialize SpamDetector after UI is set up
+                try {
+                    Log.d(TAG, "Initializing SpamDetector...")
+                    spamDetector = SpamDetector(this)
+                    coroutineScope.launch {
+                        val initialized = withContext(Dispatchers.IO) {
+                            spamDetector.initialize()
+                        }
+                        if (initialized) {
+                            Log.d(TAG, "SpamDetector initialized successfully")
+                            // Test the spam detector with a sample text
+                            testSpamDetection("You've won a free prize! Click here to claim your reward!")
+                        } else {
+                            Log.e(TAG, "Failed to initialize SpamDetector")
+                            showError("Failed to initialize spam detection")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error initializing SpamDetector: ${e.message}", e)
+                    showError("Error initializing spam detection: ${e.message}")
+                }
+                
             } catch (e: Exception) {
                 Log.e(TAG, "Error setting up button listener: ${e.message}", e)
                 showError("Error setting up UI: ${e.message}")
@@ -246,17 +277,45 @@ class MainActivity : AppCompatActivity() {
     private fun showError(message: String) {
         runOnUiThread {
             try {
-                AlertDialog.Builder(this)
+                AlertDialog.Builder(this@MainActivity)
                     .setTitle("Error")
                     .setMessage(message)
-                    .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                    .setPositiveButton("OK", null)
                     .show()
             } catch (e: Exception) {
-                // If UI thread is not ready, show toast instead
-                Toast.makeText(this, "Error: $message", Toast.LENGTH_LONG).show()
+                Log.e(TAG, "Error showing error dialog: ${e.message}")
+                Toast.makeText(this@MainActivity, "Error: $message", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    
+    private fun testSpamDetection(text: String) {
+        coroutineScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    spamDetector.analyzeConversation(text)
+                }
+                
+                val status = if (result.isSuspicious) {
+                    "⚠️ SUSPICIOUS (${(result.confidence * 100).toInt()}%)"
+                } else {
+                    "✅ Not suspicious (${(result.confidence * 100).toInt()}%)"
+                }
+                
+                statusText.text = """
+                    Analysis Result:
+                    Status: $status
+                    
+                    Reasoning:
+                    ${result.reasoning}
+                    
+                    Timestamp: ${result.timestamp}
+                """.trimIndent()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error analyzing text: ${e.message}", e)
+                showError("Error analyzing text: ${e.message}")
             }
         }
     }
 }
-
-
