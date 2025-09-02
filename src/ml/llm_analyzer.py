@@ -1,100 +1,151 @@
 #!/usr/bin/env python3
 """
 LLM Analyzer for Spam/Fraud Detection
-Performs rule-based analysis on transcribed text
+Uses GPT-2 model from assets for analysis
 """
 
+import os
+import json
 import logging
-import re
-from typing import Dict, List, Any
+import torch
+from typing import Dict, Any
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class LLMAnalyzer:
-    def __init__(self, config):
-        self.config = config
-        self.fraud_keywords = config.FRAUD_KEYWORDS
-        self.suspicious_phrases = config.SUSPICIOUS_PHRASES
-        self.risk_threshold = config.RISK_THRESHOLD
+    def __init__(self, assets_dir=None):
+        """
+        Initialize the LLM Analyzer
         
-    async def initialize(self):
-        """Initialize the analyzer"""
+        Args:
+            assets_dir: Path to directory containing model assets
+        """
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model = None
+        self.tokenizer = None
+        self.assets_dir = assets_dir or os.path.join(os.path.dirname(__file__), '..', '..', 'app', 'src', 'main', 'assets')
+        
+    async def initialize(self) -> bool:
+        """Initialize the analyzer and load the GPT-2 model from assets"""
         try:
             logger.info("Initializing LLM Analyzer")
-            logger.info(f"Loaded {len(self.fraud_keywords)} fraud keywords")
-            logger.info(f"Loaded {len(self.suspicious_phrases)} suspicious phrases")
+            
+            # Load tokenizer
+            tokenizer_path = os.path.join(self.assets_dir, 'gpt2_medium_fp16_tokenizer')
+            logger.info(f"Loading tokenizer from {tokenizer_path}")
+            self.tokenizer = GPT2Tokenizer.from_pretrained(tokenizer_path)
+            
+            # Load model
+            model_path = os.path.join(self.assets_dir, 'gpt2_medium_fp16.pt')
+            logger.info(f"Loading model from {model_path}")
+            
+            # Load model config
+            config_path = os.path.join(self.assets_dir, 'gpt2_medium_fp16_info.json')
+            with open(config_path, 'r') as f:
+                model_config = json.load(f)
+            
+            # Initialize model with config
+            self.model = GPT2LMHeadModel.from_pretrained(
+                pretrained_model_name_or_path=None,
+                config=model_config,
+                state_dict=torch.load(model_path, map_location=self.device)
+            ).to(self.device)
+            self.model.eval()
+            
+            logger.info(f"GPT-2 model loaded on {self.device.upper()}")
             return True
+            
         except Exception as e:
-            logger.error(f"Failed to initialize LLM Analyzer: {e}")
+            logger.error(f"Failed to initialize LLM Analyzer: {e}", exc_info=True)
             return False
     
     async def analyze_conversation(self, text: str) -> Dict[str, Any]:
-        """Analyze conversation text for fraud indicators"""
+        """
+        Analyze conversation text using the GPT-2 model
+        
+        Args:
+            text: The conversation text to analyze
+            
+        Returns:
+            Dict containing analysis results with is_suspicious and confidence
+        """
         if not text.strip():
             return {
-                'risk_score': 0.0,
                 'is_suspicious': False,
                 'confidence': 0.0,
                 'reasoning': 'No text to analyze',
-                'detected_keywords': [],
-                'detected_phrases': []
+                'timestamp': datetime.now().isoformat()
             }
         
         try:
-            # Convert to lowercase for matching
-            text_lower = text.lower()
+            # Prepare the prompt
+            prompt = f"Analyze this conversation for potential fraud or scam indicators:\n\n{text}\n\nAnalysis:"
             
-            # Find detected keywords
-            detected_keywords = []
-            for keyword in self.fraud_keywords:
-                if keyword.lower() in text_lower:
-                    detected_keywords.append(keyword)
+            # Tokenize the input text
+            inputs = self.tokenizer(
+                prompt,
+                return_tensors="pt",
+                max_length=512,
+                truncation=True,
+                padding='max_length'
+            ).to(self.device)
             
-            # Find detected phrases
-            detected_phrases = []
-            for phrase in self.suspicious_phrases:
-                if phrase.lower() in text_lower:
-                    detected_phrases.append(phrase)
+            # Generate response
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_length=len(inputs.input_ids[0]) + 100,
+                    num_return_sequences=1,
+                    temperature=0.7,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
             
-            # Calculate risk score
-            risk_score = self._calculate_risk_score(detected_keywords, detected_phrases, text)
+            # Decode the response
+            response = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            # Determine if suspicious
-            is_suspicious = risk_score >= self.risk_threshold
+            # Simple heuristic to determine if it's suspicious
+            # In a real app, you'd want to fine-tune this based on your model's output
+            is_suspicious = any(word in response.lower() 
+                              for word in ['scam', 'fraud', 'suspicious', 'high risk'])
             
-            # Generate reasoning
-            reasoning = self._generate_reasoning(detected_keywords, detected_phrases, risk_score)
+            # Calculate confidence based on response length and content
+            confidence = min(0.9, len(response) / 100)  # Simple heuristic
             
-            # Calculate confidence
-            confidence = self._calculate_confidence(detected_keywords, detected_phrases, text)
-            
-            result = {
-                'risk_score': risk_score,
+            return {
                 'is_suspicious': is_suspicious,
                 'confidence': confidence,
-                'reasoning': reasoning,
-                'detected_keywords': detected_keywords,
-                'detected_phrases': detected_phrases,
+                'reasoning': response,
                 'timestamp': datetime.now().isoformat()
             }
             
-            logger.info(f"Analysis result: Risk={risk_score:.2f}, Suspicious={is_suspicious}")
-            return result
-            
         except Exception as e:
-            logger.error(f"Analysis failed: {e}")
+            logger.error(f"LLM analysis failed: {e}", exc_info=True)
             return {
-                'risk_score': 0.0,
                 'is_suspicious': False,
                 'confidence': 0.0,
                 'reasoning': f'Analysis error: {str(e)}',
-                'detected_keywords': [],
-                'detected_phrases': []
+                'timestamp': datetime.now().isoformat()
             }
     
-    def _calculate_risk_score(self, keywords: List[str], phrases: List[str], text: str) -> float:
-        """Calculate risk score based on detected patterns"""
+    
+    def _calculate_risk_score(self, keywords: list, phrases: list, text: str) -> float:
+        """
+        Calculate risk score based on detected patterns and keywords
+        
+        Args:
+            keywords: List of detected fraud keywords
+            phrases: List of detected suspicious phrases
+            text: Original text for additional context
+            
+        Returns:
+            Risk score between 0.0 and 1.0
+        """
+        if not (keywords or phrases):
+            return 0.0
+            
         base_score = 0.0
         
         # Add score for each keyword
@@ -115,23 +166,95 @@ class LLMAnalyzer:
         # Cap at 1.0
         return min(base_score, 1.0)
     
-    def _generate_reasoning(self, keywords: List[str], phrases: List[str], risk_score: float) -> str:
-        """Generate human-readable reasoning for the analysis"""
+    def _detect_keywords(self, text_lower: str) -> list:
+        """Detect fraud keywords in text"""
+        return [kw for kw in self.fraud_keywords if kw.lower() in text_lower]
+    
+    def _detect_phrases(self, text_lower: str) -> list:
+        """Detect suspicious phrases in text"""
+        return [phrase for phrase in self.suspicious_phrases if phrase.lower() in text_lower]
+    
+    def _format_result(
+        self,
+        risk_score: float,
+        is_suspicious: bool,
+        confidence: float,
+        detected_keywords: list,
+        detected_phrases: list,
+        model_used: str
+    ) -> Dict[str, Any]:
+        """Format the analysis result into a standardized dictionary"""
+        reasoning = self._generate_reasoning(detected_keywords, detected_phrases, risk_score)
+        
+        return {
+            'risk_score': min(1.0, max(0.0, risk_score)),
+            'is_suspicious': is_suspicious,
+            'confidence': min(1.0, max(0.0, confidence)),
+            'reasoning': reasoning,
+            'detected_keywords': detected_keywords,
+            'detected_phrases': detected_phrases,
+            'model_used': model_used,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def _empty_result(self, message: str) -> Dict[str, Any]:
+        """Return an empty result with the given message"""
+        return {
+            'risk_score': 0.0,
+            'is_suspicious': False,
+            'confidence': 0.0,
+            'reasoning': message,
+            'detected_keywords': [],
+            'detected_phrases': [],
+            'model_used': 'none',
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def _error_result(self, error_message: str) -> Dict[str, Any]:
+        """Return an error result"""
+        return {
+            'risk_score': 0.0,
+            'is_suspicious': False,
+            'confidence': 0.0,
+            'reasoning': error_message,
+            'detected_keywords': [],
+            'detected_phrases': [],
+            'model_used': 'error',
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def _generate_reasoning(self, keywords: list, phrases: list, risk_score: float) -> str:
+        """
+        Generate human-readable reasoning for the analysis
+        
+        Args:
+            keywords: List of detected fraud keywords
+            phrases: List of detected suspicious phrases
+            risk_score: Calculated risk score
+            
+        Returns:
+            Human-readable explanation of the analysis
+        """
+        if not (keywords or phrases):
+            return "No suspicious patterns detected."
+            
         reasons = []
-        
         if keywords:
-            reasons.append(f"Detected {len(keywords)} fraud keywords: {', '.join(keywords)}")
-        
+            reasons.append(f"Detected potential fraud keywords: {', '.join(keywords[:5])}" + 
+                         (" and more..." if len(keywords) > 5 else ""))
         if phrases:
-            reasons.append(f"Detected {len(phrases)} suspicious phrases: {', '.join(phrases)}")
-        
+            reasons.append(f"Detected suspicious patterns in the conversation.")
+            
+        # Add risk level
         if risk_score > 0.7:
-            reasons.append("High risk score indicates potential fraud")
+            risk_level = "high"
         elif risk_score > 0.4:
-            reasons.append("Moderate risk score - exercise caution")
+            risk_level = "moderate"
         else:
-            reasons.append("Low risk score - appears legitimate")
-        
+            risk_level = "low"
+            
+        reasons.append(f"Overall risk level: {risk_level} (score: {risk_score:.2f})")
+        return " ".join(reasons)
         return "; ".join(reasons) if reasons else "No specific indicators detected"
     
     def _calculate_confidence(self, keywords: List[str], phrases: List[str], text: str) -> float:
