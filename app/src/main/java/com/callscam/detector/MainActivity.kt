@@ -44,9 +44,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private lateinit var serverUrlInput: EditText
     private lateinit var statusText: TextView
-    private lateinit var startServerButton: Button
     private lateinit var prefs: SharedPreferences
     private lateinit var spamDetector: SpamDetector
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
@@ -66,9 +64,7 @@ class MainActivity : AppCompatActivity() {
             
             try {
                 Log.d(TAG, "Finding views...")
-                serverUrlInput = findViewById(R.id.server_url_input)
                 statusText = findViewById(R.id.status_text)
-                startServerButton = findViewById(R.id.start_server_button)
                 Log.d(TAG, "All views found successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error finding views: ${e.message}", e)
@@ -77,30 +73,7 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             
-            try {
-                Log.d(TAG, "Loading saved URL...")
-                val savedUrl = prefs.getString("server_url", "ws://10.0.2.2:8765/stream")
-                serverUrlInput.setText(savedUrl)
-                Log.d(TAG, "URL loaded: $savedUrl")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading URL: ${e.message}", e)
-                // Continue even if URL loading fails
-            }
             
-            try {
-                Log.d(TAG, "Setting up button click listener...")
-                startServerButton.setOnClickListener {
-                    try {
-                        Log.d(TAG, "Save button clicked")
-                        saveServerUrl()
-                        statusText.text = "Server URL saved: ${serverUrlInput.text}"
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error in startServerButton click: ${e.message}", e)
-                        showError("Error saving URL: ${e.message}")
-                    }
-                }
-                Log.d(TAG, "Button click listener set up")
-                
                 // Initialize SpamDetector after UI is set up
                 try {
                     Log.d(TAG, "Initializing SpamDetector...")
@@ -263,16 +236,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
     
-    private fun saveServerUrl() {
-        try {
-            val url = serverUrlInput.text.toString()
-            prefs.edit().putString("server_url", url).apply()
-            Log.d(TAG, "Server URL saved: $url")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saving server URL: ${e.message}", e)
-            throw e
-        }
-    }
+
     
     private fun showError(message: String) {
         runOnUiThread {
@@ -318,4 +282,4 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-}
+
