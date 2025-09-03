@@ -1,6 +1,8 @@
 package com.callscam.detector
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
@@ -8,21 +10,24 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.Button
-import android.widget.EditText
-import android.widget.TextView
+import android.telephony.TelephonyManager
 import android.util.Log
+import android.view.View
+import android.widget.Button
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.callscam.detector.audio.WhisperHelper
+import com.callscam.detector.service.CallAccessibilityService
+import com.callscam.detector.service.CallRecordingService
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
     private val TAG = "SpamDetector"
@@ -30,7 +35,9 @@ class MainActivity : AppCompatActivity() {
     private val requiredPermissions = arrayOf(
         Manifest.permission.RECORD_AUDIO,
         Manifest.permission.READ_PHONE_STATE,
-        Manifest.permission.READ_CALL_LOG
+        Manifest.permission.READ_CALL_LOG,
+        Manifest.permission.FOREGROUND_SERVICE,
+        Manifest.permission.POST_NOTIFICATIONS
     )
 
     private val requestPermissions = registerForActivityResult(
@@ -46,8 +53,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var prefs: SharedPreferences
-    private lateinit var spamDetector: SpamDetector
+    // SpamDetector is now managed by CallAccessibilityService
     private val coroutineScope = CoroutineScope(Dispatchers.Main)
+
+    private lateinit var startButton: Button
+    private lateinit var statusText: TextView
+    private lateinit var prefs: SharedPreferences
+    private var isServiceRunning = false
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
+    private lateinit var whisperHelper: WhisperHelper
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +72,9 @@ class MainActivity : AppCompatActivity() {
             setContentView(R.layout.activity_main)
             Log.d(TAG, "Content view set successfully")
             
+            // Initialize WhisperHelper
+            whisperHelper = WhisperHelper(this)
+            
             Log.d(TAG, "Initializing SharedPreferences...")
             prefs = getSharedPreferences("SpamDetector", MODE_PRIVATE)
             Log.d(TAG, "SharedPreferences initialized")
@@ -65,7 +82,20 @@ class MainActivity : AppCompatActivity() {
             try {
                 Log.d(TAG, "Finding views...")
                 statusText = findViewById(R.id.status_text)
-                Log.d(TAG, "All views found successfully")
+                startButton = findViewById(R.id.start_button)
+                
+                startButton.setOnClickListener {
+                    if (!hasAllRequiredPermissions()) {
+                        requestPermissions()
+                    } else if (!isAccessibilityServiceEnabled()) {
+                        checkAndRequestAccessibilityService()
+                    } else {
+                        toggleService()
+                    }
+                }
+                
+                updateUI()
+                Log.d(TAG, "All views found and initialized successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error finding views: ${e.message}", e)
                 showError("Error initializing UI: ${e.message}")
@@ -74,27 +104,14 @@ class MainActivity : AppCompatActivity() {
             }
             
             
-                // Initialize SpamDetector after UI is set up
-                try {
-                    Log.d(TAG, "Initializing SpamDetector...")
-                    spamDetector = SpamDetector(this)
-                    coroutineScope.launch {
-                        val initialized = withContext(Dispatchers.IO) {
-                            spamDetector.initialize()
-                        }
-                        if (initialized) {
-                            Log.d(TAG, "SpamDetector initialized successfully")
-                            // Test the spam detector with a sample text
-                            testSpamDetection("You've won a free prize! Click here to claim your reward!")
-                        } else {
-                            Log.e(TAG, "Failed to initialize SpamDetector")
-                            showError("Failed to initialize spam detection")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error initializing SpamDetector: ${e.message}", e)
-                    showError("Error initializing spam detection: ${e.message}")
-                }
+                // Check and request permissions
+            if (!hasAllRequiredPermissions()) {
+                requestPermissions()
+            } else if (!isAccessibilityServiceEnabled()) {
+                checkAndRequestAccessibilityService()
+            } else {
+                startCallMonitoring()
+            }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error setting up button listener: ${e.message}", e)
@@ -205,37 +222,45 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkAndRequestAccessibilityService() {
-        // Check if accessibility service is enabled
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        )
-
-        if (enabledServices != null && enabledServices.contains(packageName)) {
-            // Accessibility service is enabled
-            statusText.text = "Service is running"
-        } else {
-            // Show dialog to enable accessibility service
+        if (!isAccessibilityServiceEnabled()) {
             showAccessibilityServiceDialog()
+        } else {
+            startCallMonitoring()
         }
     }
 
     private fun showAccessibilityServiceDialog() {
         AlertDialog.Builder(this)
-            .setTitle("Enable Accessibility Service")
-            .setMessage("Please enable the Spam Detector accessibility service to detect calls.")
-            .setPositiveButton("Enable") { _, _ ->
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            .setTitle("Accessibility Service Required")
+            .setMessage("Please enable the Spam Detector accessibility service to detect incoming calls.")
+            .setPositiveButton("Open Settings") { _, _ ->
+                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                startActivity(intent)
             }
-            .setNegativeButton("Later") { dialog, _ ->
+            .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
-                Toast.makeText(this, "You can enable it later in Settings", 
-                    Toast.LENGTH_SHORT).show()
             }
             .setCancelable(false)
             .show()
     }
     
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expectedComponentName = ComponentName(this, CallAccessibilityService::class.java)
+        val enabledServices = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        
+        return enabledServices.contains(expectedComponentName.flattenToString())
+    }
+    
+    private fun startCallMonitoring() {
+        // Start the foreground service
+        val serviceIntent = Intent(this, CallRecordingService::class.java)
+        ContextCompat.startForegroundService(this, serviceIntent)
+        isServiceRunning = true
+        updateUI()
+    }
 
     
     private fun showError(message: String) {
@@ -256,6 +281,7 @@ class MainActivity : AppCompatActivity() {
     private fun testSpamDetection(text: String) {
         coroutineScope.launch {
             try {
+                val spamDetector = CallAccessibilityService.getSpamDetector(this@MainActivity)
                 val result = withContext(Dispatchers.IO) {
                     spamDetector.analyzeConversation(text)
                 }
