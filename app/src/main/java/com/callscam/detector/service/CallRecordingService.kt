@@ -41,25 +41,44 @@ class CallRecordingService : Service() {
     private var isSpam = false
     private val transcriptionBuffer = StringBuilder()
     
-    // Audio recording parameters
+// Audio recording parameters
     private val SAMPLE_RATE = 16000
     private val CHANNEL_CONFIG = android.media.AudioFormat.CHANNEL_IN_MONO
     private val AUDIO_FORMAT = android.media.AudioFormat.ENCODING_PCM_16BIT
-    private val BUFFER_SIZE = AudioRecord.getMinBufferSize(
+    private val BUFFER_SIZE = android.media.AudioRecord.getMinBufferSize(
         SAMPLE_RATE, 
         CHANNEL_CONFIG, 
         AUDIO_FORMAT
-    ) * 2
-
+    )
+    
+    private var audioRecord: android.media.AudioRecord? = null
     private val audioManager by lazy { getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     private val vibrator by lazy { getSystemService(Context.VIBRATOR_SERVICE) as Vibrator }
     private val notificationManager by lazy { getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager }
 
     override fun onCreate() {
         super.onCreate()
-        audioProcessor = AudioProcessor(this)
+        audioProcessor = AudioProcessor()
         whisperHelper = WhisperHelper(this)
         createNotificationChannel()
+        
+        // Initialize AudioRecord
+        audioRecord = try {
+            android.media.AudioRecord.Builder()
+                .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder()
+                        .setEncoding(AUDIO_FORMAT)
+                        .setSampleRate(SAMPLE_RATE)
+                        .setChannelMask(CHANNEL_CONFIG)
+                        .build()
+                )
+                .setBufferSizeInBytes(BUFFER_SIZE)
+                .build()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing AudioRecord", e)
+            null
+        }
         
         // Set up audio for call monitoring
         setupAudioForCall()

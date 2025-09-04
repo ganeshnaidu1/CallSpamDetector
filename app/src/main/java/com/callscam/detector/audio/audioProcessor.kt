@@ -29,22 +29,30 @@ class AudioProcessor {
         try {
             // Try VOICE_COMMUNICATION first, fall back to MIC if needed
             audioRecord = try {
-                AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                    SAMPLE_RATE,
-                    CHANNEL_CONFIG,
-                    AUDIO_FORMAT,
-                    BUFFER_SIZE
-                )
+                AudioRecord.Builder()
+                    .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AUDIO_FORMAT)
+                            .setSampleRate(SAMPLE_RATE)
+                            .setChannelMask(CHANNEL_CONFIG)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(BUFFER_SIZE)
+                    .build()
             } catch (e: Exception) {
                 Log.w(TAG, "VOICE_COMMUNICATION source failed, falling back to MIC", e)
-                AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
-                    SAMPLE_RATE,
-                    CHANNEL_CONFIG,
-                    AUDIO_FORMAT,
-                    BUFFER_SIZE
-                )
+                AudioRecord.Builder()
+                    .setAudioSource(MediaRecorder.AudioSource.MIC)
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AUDIO_FORMAT)
+                            .setSampleRate(SAMPLE_RATE)
+                            .setChannelMask(CHANNEL_CONFIG)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(BUFFER_SIZE)
+                    .build()
             }
             
             audioRecord?.startRecording()

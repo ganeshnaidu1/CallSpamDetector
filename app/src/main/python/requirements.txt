@@ -1,0 +1,25 @@
+# Core dependencies
+urllib3<2.0.0
+numpy==1.24.3
+tqdm==4.65.0
+
+# PyTorch for Android (pre-built wheels for ARM)
+--find-links https://github.com/chaquo/chaquo-ml-build/releases/download/v0.2.0/
+torch==2.0.0
+
+# Whisper and its dependencies
+openai-whisper==20231117
+more-itertools==10.1.0
+tiktoken==0.5.2
+
+# Audio processing
+librosa==0.10.1
+soundfile==0.12.1
+audioread==3.0.1
+
+# Other required dependencies
+ffmpeg-python==0.2.0
+huggingface-hub==0.19.4
+tokenizers==0.15.1
+regex==2023.10.3
+requests==2.31.0

@@ -33,13 +33,18 @@ class WhisperHelper(private val context: Context) {
             
             // Set up paths
             val cacheDir = context.cacheDir.absolutePath
-            sys.get("path").callAttr("append", cacheDir)
+            val filesDir = context.filesDir.absolutePath
+            
+            // Add necessary paths to Python path
+            sys["path"]?.callAttr("append", cacheDir)
+            sys["path"]?.callAttr("append", filesDir)
+            
+            // Set environment variables
+            os["environ"]?.callAttr("__setitem__", "TORCH_HOME", filesDir)
+            os["environ"]?.callAttr("__setitem__", "TRANSFORMERS_CACHE", "$filesDir/transformers")
             
             // Initialize Whisper module
             whisperModule = python.getModule("whisper_processor")
-            
-            // Initialize the model
-            whisperModule.callAttr("initialize")
             
             isInitialized = true
             Log.d(TAG, "Whisper module initialized successfully")
@@ -48,30 +53,29 @@ class WhisperHelper(private val context: Context) {
         }
     }
 
-    suspend fun transcribeAudio(audioData: ByteArray): String = withContext(Dispatchers.IO) {
-        if (!isInitialized) {
-            Log.e(TAG, "Whisper module not initialized")
-            return@withContext ""
-        }
-
-        return@withContext try {
-            // Convert byte array to Python bytes
-            val pyBytes = python.builtins.callAttr("bytes", audioData.toList())
-            
-            // Call Python function to process audio chunk
-            val result = whisperModule.callAttr("process_audio_chunk", pyBytes, SAMPLE_RATE)
-            
-            // Convert result to string and clean up
-            val transcription = result?.toString()?.trim() ?: ""
-            
-            if (transcription.isNotEmpty()) {
-                Log.d(TAG, "Transcription: $transcription")
+    suspend fun transcribeAudio(audioData: ByteArray, sampleRate: Int = SAMPLE_RATE): String {
+        return withContext(Dispatchers.IO) {
+            try {
+                if (!isInitialized) {
+                    Log.e(TAG, "Whisper module not initialized")
+                    return@withContext ""
+                }
+                
+                Log.d(TAG, "Starting transcription of ${audioData.size} bytes")
+                
+                // Convert to a format that can be passed to Python
+                val pythonArray = python.builtins.callAttr("bytearray", audioData)
+                
+                // Call the Python function to process the audio
+                val result = whisperModule.callAttr("process_audio_chunk", pythonArray, sampleRate)
+                
+                val transcription = result?.toString() ?: ""
+                Log.d(TAG, "Transcription result: $transcription")
+                return@withContext transcription
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in transcription", e)
+                return@withContext ""
             }
-            
-            transcription
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in speech-to-text conversion", e)
-            ""
         }
     }
     
