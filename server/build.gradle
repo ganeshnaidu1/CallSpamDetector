@@ -1,0 +1,35 @@
+// Simple build.gradle for the server module to satisfy Gradle
+// This module is primarily for Python code and doesn't need Android-specific configuration
+
+plugins {
+    id 'java'
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    // Add any Java/Kotlin dependencies needed for the server module here
+    // For now, we'll keep it empty since the main functionality is in Python
+}
+
+// This task will be used to run the Python server
+task runPythonServer(type: Exec) {
+    workingDir '../server'
+    commandLine 'python', 'server.py'
+}
+
+// Make sure the server directory exists and contains the Python files
+task setupServerDir {
+    doLast {
+        def serverDir = file('../server')
+        if (!serverDir.exists()) {
+            serverDir.mkdirs()
+        }
+    }
+}
+
+// Ensure the server directory is set up before running the Python server
+runPythonServer.dependsOn setupServerDir
